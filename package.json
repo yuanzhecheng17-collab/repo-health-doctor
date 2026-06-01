@@ -7,8 +7,8 @@
     "src"
   ],
   "bin": {
-    "repo-health-doctor": "./src/index.js",
-    "rhd": "./src/index.js"
+    "repo-health-doctor": "src/index.js",
+    "rhd": "src/index.js"
   },
   "scripts": {
     "check": "node src/index.js . --fail-under 70",
