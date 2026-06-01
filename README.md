@@ -1,5 +1,9 @@
 # Repo Health Doctor
 
+[![npm version](https://img.shields.io/npm/v/repo-health-doctor.svg)](https://www.npmjs.com/package/repo-health-doctor)
+[![GitHub](https://img.shields.io/badge/GitHub-repo--health--doctor-181717?logo=github)](https://github.com/yuanzhecheng17-collab/repo-health-doctor)
+[![CI](https://github.com/yuanzhecheng17-collab/repo-health-doctor/actions/workflows/ci.yml/badge.svg)](https://github.com/yuanzhecheng17-collab/repo-health-doctor/actions/workflows/ci.yml)
+
 Repo Health Doctor is a zero-dependency CLI that scores whether a repository is ready to publish on GitHub. It checks docs, dependency metadata, tests, CI, env-file hygiene, and obvious secret patterns.
 
 It never reads private `.env` file contents. It only reports their file names and scans ordinary text files for risky secret patterns.
@@ -9,6 +13,8 @@ It never reads private `.env` file contents. It only reports their file names an
 ```sh
 npx repo-health-doctor .
 ```
+
+Package: [repo-health-doctor on npm](https://www.npmjs.com/package/repo-health-doctor)
 
 For local development:
 
