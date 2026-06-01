@@ -1,0 +1,27 @@
+{
+  "name": "repo-health-doctor",
+  "version": "0.1.0",
+  "description": "Zero-dependency CLI that scores repository readiness before publishing.",
+  "type": "module",
+  "bin": {
+    "repo-health-doctor": "./src/index.js",
+    "rhd": "./src/index.js"
+  },
+  "scripts": {
+    "check": "node src/index.js . --fail-under 70",
+    "test": "node --test"
+  },
+  "keywords": [
+    "cli",
+    "github",
+    "repository",
+    "health",
+    "security",
+    "developer-tools"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  }
+}
