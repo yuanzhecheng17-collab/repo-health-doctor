@@ -4,8 +4,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-const VERSION = '0.1.0';
+const VERSION = '0.2.0';
 const TEXT_FILE_LIMIT = 512 * 1024;
+const CONFIG_FILES = ['.repo-health.json', 'repo-health.json'];
 
 const IGNORED_DIRS = new Set([
   '.git',
@@ -115,6 +116,7 @@ const LOCKFILES = [
 export function parseArgs(argv) {
   const options = {
     target: '.',
+    configPath: null,
     json: false,
     failUnder: null,
     help: false,
@@ -131,6 +133,19 @@ export function parseArgs(argv) {
       options.help = true;
     } else if (arg === '--version' || arg === '-v') {
       options.version = true;
+    } else if (arg === '--config') {
+      const raw = argv[index + 1];
+      if (!raw) {
+        throw new Error('--config requires a path');
+      }
+      options.configPath = raw;
+      index += 1;
+    } else if (arg.startsWith('--config=')) {
+      const raw = arg.slice('--config='.length);
+      if (!raw) {
+        throw new Error('--config requires a path');
+      }
+      options.configPath = raw;
     } else if (arg === '--fail-under') {
       const raw = argv[index + 1];
       if (!raw) {
@@ -158,14 +173,15 @@ export function parseArgs(argv) {
   return options;
 }
 
-export function analyzeRepository(targetPath = '.') {
+export function analyzeRepository(targetPath = '.', options = {}) {
   const root = path.resolve(targetPath);
   const stat = safeStat(root);
   if (!stat || !stat.isDirectory()) {
     throw new Error(`Repository path does not exist or is not a directory: ${root}`);
   }
 
-  const inventory = collectInventory(root);
+  const config = loadConfig(root, options.configPath);
+  const inventory = collectInventory(root, config.ignore);
   const rootFiles = new Set(inventory.rootFiles.map((file) => file.toLowerCase()));
   const rootDirs = new Set(inventory.rootDirs.map((dir) => dir.toLowerCase()));
   const allFiles = inventory.files.map((file) => file.relative);
@@ -177,11 +193,12 @@ export function analyzeRepository(targetPath = '.') {
   const lockfileNeeded = needsLockfile(manifests, packageInfo);
   const sensitiveEnvFiles = allFiles.filter((file) => isSensitiveEnvFile(path.basename(file)));
   const envExamples = allFiles.filter((file) => isEnvExample(path.basename(file)));
-  const secretFindings = findSecretFindings(root, inventory.files);
+  const secretScanEnabled = config.checks['secret-scan']?.enabled !== false;
+  const secretFindings = secretScanEnabled ? findSecretFindings(root, inventory.files) : [];
   const testEvidence = findTestEvidence(allFiles, rootDirs, packageInfo);
   const ciEvidence = findCiEvidence(lowerFiles);
 
-  const checks = [
+  const checks = applyCheckConfig([
     buildCheck({
       id: 'readme',
       label: 'README present',
@@ -270,16 +287,23 @@ export function analyzeRepository(targetPath = '.') {
       evidence: findRootMatches(rootFiles, /^(contributing|changelog|security|code_of_conduct)(\.|$)/),
       advice: 'Add CONTRIBUTING.md, CHANGELOG.md, SECURITY.md, or CODE_OF_CONDUCT.md as the project matures.'
     })
-  ];
+  ], config.checks);
 
   const totalWeight = checks.reduce((sum, check) => sum + check.weight, 0);
   const earned = checks.reduce((sum, check) => sum + check.score, 0);
-  const score = Math.round((earned / totalWeight) * 100);
+  const score = totalWeight === 0 ? 100 : Math.round((earned / totalWeight) * 100);
 
   return {
     tool: 'repo-health-doctor',
     version: VERSION,
     root,
+    config: {
+      source: config.source,
+      failUnder: config.failUnder,
+      ignore: config.ignore,
+      disabledChecks: config.disabledChecks,
+      weightOverrides: config.weightOverrides
+    },
     score,
     grade: gradeScore(score),
     passedChecks: checks.filter((check) => check.passed).length,
@@ -292,6 +316,146 @@ export function analyzeRepository(targetPath = '.') {
       lockfiles
     }
   };
+}
+
+function loadConfig(root, explicitConfigPath) {
+  const base = {
+    source: null,
+    failUnder: null,
+    ignore: [],
+    checks: {},
+    disabledChecks: [],
+    weightOverrides: {}
+  };
+
+  let rawConfig = null;
+  let source = null;
+
+  if (explicitConfigPath) {
+    source = path.resolve(explicitConfigPath);
+    rawConfig = readJsonFile(source, `Config file is not valid JSON: ${source}`);
+  } else {
+    for (const file of CONFIG_FILES) {
+      const candidate = path.join(root, file);
+      if (fs.existsSync(candidate)) {
+        source = candidate;
+        rawConfig = readJsonFile(candidate, `Config file is not valid JSON: ${candidate}`);
+        break;
+      }
+    }
+
+    if (!rawConfig) {
+      const packageJson = readJsonFileIfExists(path.join(root, 'package.json'));
+      if (packageJson?.repoHealth && typeof packageJson.repoHealth === 'object') {
+        source = path.join(root, 'package.json#repoHealth');
+        rawConfig = packageJson.repoHealth;
+      }
+    }
+  }
+
+  if (!rawConfig) {
+    return base;
+  }
+
+  const failUnder = rawConfig.failUnder === undefined ? null : parseThreshold(String(rawConfig.failUnder));
+  const ignore = Array.isArray(rawConfig.ignore)
+    ? rawConfig.ignore.filter((item) => typeof item === 'string' && item.trim()).map((item) => normalizePathPattern(item))
+    : [];
+  const checks = normalizeChecksConfig(rawConfig.checks);
+
+  return {
+    source,
+    failUnder,
+    ignore,
+    checks,
+    disabledChecks: Object.entries(checks).filter(([, value]) => value.enabled === false).map(([id]) => id),
+    weightOverrides: Object.fromEntries(
+      Object.entries(checks)
+        .filter(([, value]) => value.weight !== null)
+        .map(([id, value]) => [id, value.weight])
+    )
+  };
+}
+
+function readJsonFile(filePath, message) {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      throw new Error(`Config file does not exist: ${filePath}`);
+    }
+    throw new Error(message);
+  }
+}
+
+function readJsonFileIfExists(filePath) {
+  if (!fs.existsSync(filePath)) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function normalizeChecksConfig(rawChecks) {
+  if (!rawChecks || typeof rawChecks !== 'object' || Array.isArray(rawChecks)) {
+    return {};
+  }
+
+  const normalized = {};
+  for (const [rawId, value] of Object.entries(rawChecks)) {
+    const id = normalizeCheckId(rawId);
+    if (typeof value === 'boolean') {
+      normalized[id] = {
+        enabled: value,
+        weight: null
+      };
+      continue;
+    }
+
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      normalized[id] = {
+        enabled: typeof value.enabled === 'boolean' ? value.enabled : true,
+        weight: value.weight === undefined ? null : parseWeight(value.weight, id)
+      };
+    }
+  }
+  return normalized;
+}
+
+function normalizeCheckId(rawId) {
+  return String(rawId)
+    .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
+    .replace(/_/g, '-')
+    .toLowerCase();
+}
+
+function parseWeight(rawWeight, checkId) {
+  const weight = Number(rawWeight);
+  if (!Number.isInteger(weight) || weight < 0 || weight > 100) {
+    throw new Error(`Config check "${checkId}" weight must be an integer from 0 to 100`);
+  }
+  return weight;
+}
+
+function applyCheckConfig(checks, checkConfig) {
+  return checks
+    .filter((check) => checkConfig[check.id]?.enabled !== false)
+    .map((check) => {
+      const override = checkConfig[check.id]?.weight;
+      if (override === null || override === undefined) {
+        return check;
+      }
+
+      return {
+        ...check,
+        weight: override,
+        score: check.passed ? override : 0
+      };
+    });
 }
 
 function parseThreshold(raw) {
@@ -310,13 +474,17 @@ function safeStat(filePath) {
   }
 }
 
-function collectInventory(root) {
+function collectInventory(root, ignorePatterns = []) {
   const rootEntries = fs.readdirSync(root, { withFileTypes: true });
-  const rootFiles = rootEntries.filter((entry) => entry.isFile()).map((entry) => entry.name);
-  const rootDirs = rootEntries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+  const rootFiles = rootEntries
+    .filter((entry) => entry.isFile() && !isIgnoredPath(entry.name, ignorePatterns))
+    .map((entry) => entry.name);
+  const rootDirs = rootEntries
+    .filter((entry) => entry.isDirectory() && !isIgnoredPath(`${entry.name}/`, ignorePatterns))
+    .map((entry) => entry.name);
   const files = [];
 
-  walk(root, root, files);
+  walk(root, root, files, ignorePatterns);
 
   return {
     rootFiles,
@@ -325,28 +493,69 @@ function collectInventory(root) {
   };
 }
 
-function walk(root, currentDir, files) {
+function walk(root, currentDir, files, ignorePatterns) {
   const entries = fs.readdirSync(currentDir, { withFileTypes: true });
   for (const entry of entries) {
     const fullPath = path.join(currentDir, entry.name);
+    const relative = toPosixPath(path.relative(root, fullPath));
     if (entry.isSymbolicLink()) {
       continue;
     }
 
     if (entry.isDirectory()) {
-      if (!IGNORED_DIRS.has(entry.name)) {
-        walk(root, fullPath, files);
+      if (!IGNORED_DIRS.has(entry.name) && !isIgnoredPath(`${relative}/`, ignorePatterns)) {
+        walk(root, fullPath, files, ignorePatterns);
       }
       continue;
     }
 
-    if (entry.isFile()) {
+    if (entry.isFile() && !isIgnoredPath(relative, ignorePatterns)) {
       files.push({
         fullPath,
-        relative: toPosixPath(path.relative(root, fullPath))
+        relative
       });
     }
   }
+}
+
+function isIgnoredPath(relativePath, ignorePatterns) {
+  return ignorePatterns.some((pattern) => matchesIgnorePattern(relativePath, pattern));
+}
+
+function matchesIgnorePattern(relativePath, pattern) {
+  const normalizedPath = normalizePathPattern(relativePath);
+  const normalizedPattern = normalizePathPattern(pattern);
+
+  if (!normalizedPattern.includes('/')) {
+    return path.posix.basename(normalizedPath.replace(/\/$/, '')) === normalizedPattern;
+  }
+
+  return wildcardToRegExp(normalizedPattern).test(normalizedPath);
+}
+
+function wildcardToRegExp(pattern) {
+  let source = '';
+  for (let index = 0; index < pattern.length; index += 1) {
+    const char = pattern[index];
+    const next = pattern[index + 1];
+    if (char === '*' && next === '*') {
+      source += '.*';
+      index += 1;
+    } else if (char === '*') {
+      source += '[^/]*';
+    } else {
+      source += escapeRegExp(char);
+    }
+  }
+  return new RegExp(`^${source}$`);
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[|\\{}()[\]^$+?.]/g, '\\$&');
+}
+
+function normalizePathPattern(value) {
+  return value.replace(/\\/g, '/').replace(/^\.\//, '');
 }
 
 function readPackageInfo(root) {
@@ -543,6 +752,7 @@ function formatHumanReport(report) {
   const lines = [
     `Repo Health Doctor ${report.version}`,
     `Repository: ${report.root}`,
+    report.config.source ? `Config: ${report.config.source}` : 'Config: none',
     `Score: ${report.score}/100 (grade ${report.grade})`,
     `Checks: ${report.passedChecks}/${report.totalChecks} passed`,
     ''
@@ -573,11 +783,12 @@ function printHelp() {
   return `Repo Health Doctor ${VERSION}
 
 Usage:
-  repo-health-doctor [path] [--json] [--fail-under <score>]
+  repo-health-doctor [path] [--json] [--config <path>] [--fail-under <score>]
   rhd [path]
 
 Options:
   --json                 Print machine-readable JSON.
+  --config <path>        Read config from a JSON file.
   --fail-under <score>   Exit with code 1 when score is below 0-100 threshold.
   -v, --version          Print version.
   -h, --help             Print help.
@@ -598,14 +809,15 @@ async function main() {
       return;
     }
 
-    const report = analyzeRepository(options.target);
+    const report = analyzeRepository(options.target, { configPath: options.configPath });
     if (options.json) {
       process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
     } else {
       process.stdout.write(formatHumanReport(report));
     }
 
-    if (options.failUnder !== null && report.score < options.failUnder) {
+    const failUnder = options.failUnder ?? report.config.failUnder;
+    if (failUnder !== null && report.score < failUnder) {
       process.exitCode = 1;
     }
   } catch (error) {

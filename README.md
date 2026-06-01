@@ -16,7 +16,7 @@ Use it before publishing a new open-source project, reviewing a starter template
 
 Run it before publishing a repository to catch missing docs, tests, CI, private env files, and obvious secrets.
 
-![Repo Health Doctor demo](assets/demo.gif)
+![Repo Health Doctor demo](https://raw.githubusercontent.com/yuanzhecheng17-collab/repo-health-doctor/main/assets/demo.gif)
 
 ## Quick Start
 
@@ -25,6 +25,37 @@ npx repo-health-doctor .
 ```
 
 Package: [repo-health-doctor on npm](https://www.npmjs.com/package/repo-health-doctor)
+
+## Configuration
+
+Repo Health Doctor automatically reads `.repo-health.json`, `repo-health.json`, or the `repoHealth` field in `package.json`.
+
+```json
+{
+  "failUnder": 80,
+  "ignore": ["fixtures/**", "examples/generated/**"],
+  "checks": {
+    "ci": false,
+    "communityDocs": false,
+    "tests": {
+      "weight": 20
+    }
+  }
+}
+```
+
+You can also pass an explicit config file:
+
+```sh
+npx repo-health-doctor . --config repo-health.json
+```
+
+Supported check ids:
+
+```text
+readme, license, gitignore, manifest, lockfile, tests, ci,
+env-hygiene, env-template, secret-scan, community-docs
+```
 
 ## Use In CI
 
@@ -54,6 +85,7 @@ For local development:
 npm test
 node src/index.js . --fail-under 70
 node src/index.js . --json
+node src/index.js . --config repo-health.json
 ```
 
 ## Checks
@@ -73,13 +105,14 @@ node src/index.js . --json
 ## CLI
 
 ```sh
-repo-health-doctor [path] [--json] [--fail-under <score>]
+repo-health-doctor [path] [--json] [--config <path>] [--fail-under <score>]
 rhd [path]
 ```
 
 Options:
 
 - `--json`: print machine-readable JSON
+- `--config <path>`: read config from a JSON file
 - `--fail-under <score>`: exit with code `1` when the score is below the threshold
 - `--help`: print help
 - `--version`: print version
@@ -87,8 +120,9 @@ Options:
 ## Example Output
 
 ```text
-Repo Health Doctor 0.1.0
+Repo Health Doctor 0.2.0
 Repository: /path/to/repo
+Config: none
 Score: 86/100 (grade B)
 Checks: 9/11 passed
 

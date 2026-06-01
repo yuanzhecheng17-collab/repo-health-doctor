@@ -44,9 +44,73 @@ test('flags private env files and obvious secret patterns without secret values'
   assert.doesNotMatch(serialized, /do-not-read-this-file/);
 });
 
+test('uses config to ignore fixture paths and disable checks', (t) => {
+  const repo = makeRepo(t, 'configured');
+  write(repo, 'README.md', '# Configured\n');
+  write(repo, 'package.json', JSON.stringify({ scripts: {} }, null, 2));
+  write(repo, '.repo-health.json', JSON.stringify({
+    ignore: ['fixtures/**'],
+    checks: {
+      ci: false,
+      communityDocs: false,
+      tests: { weight: 30 }
+    }
+  }, null, 2));
+  const fakeKey = ['sk', '123456789012345678901234'].join('-');
+  write(repo, 'fixtures/config.js', `const token = "${fakeKey}";\n`);
+
+  const report = analyzeRepository(repo);
+
+  assert.equal(report.config.source.endsWith('.repo-health.json'), true);
+  assert.deepEqual(report.config.ignore, ['fixtures/**']);
+  assert.deepEqual(report.config.disabledChecks, ['ci', 'community-docs']);
+  assert.equal(report.config.weightOverrides.tests, 30);
+  assert.equal(report.findings.secretFindings.length, 0);
+  assert.equal(report.checks.some((check) => check.id === 'ci'), false);
+});
+
+test('reads repoHealth config from package.json', (t) => {
+  const repo = makeRepo(t, 'package-config');
+  write(repo, 'README.md', '# Package Config\n');
+  write(repo, 'package.json', JSON.stringify({
+    repoHealth: {
+      failUnder: 65,
+      checks: {
+        gitignore: false
+      }
+    }
+  }, null, 2));
+
+  const report = analyzeRepository(repo);
+
+  assert.equal(report.config.source.endsWith('package.json#repoHealth'), true);
+  assert.equal(report.config.failUnder, 65);
+  assert.equal(report.checks.some((check) => check.id === 'gitignore'), false);
+});
+
+test('skips secret findings when secret scan is disabled', (t) => {
+  const repo = makeRepo(t, 'secret-scan-disabled');
+  write(repo, 'README.md', '# Disabled Secret Scan\n');
+  write(repo, 'package.json', JSON.stringify({
+    repoHealth: {
+      checks: {
+        secretScan: false
+      }
+    }
+  }, null, 2));
+  const fakeKey = ['sk', '123456789012345678901234'].join('-');
+  write(repo, 'src/config.js', `const token = "${fakeKey}";\n`);
+
+  const report = analyzeRepository(repo);
+
+  assert.equal(report.checks.some((check) => check.id === 'secret-scan'), false);
+  assert.equal(report.findings.secretFindings.length, 0);
+});
+
 test('parses CLI options', () => {
-  assert.deepEqual(parseArgs(['repo', '--json', '--fail-under', '80']), {
+  assert.deepEqual(parseArgs(['repo', '--json', '--config', 'repo-health.json', '--fail-under', '80']), {
     target: 'repo',
+    configPath: 'repo-health.json',
     json: true,
     failUnder: 80,
     help: false,
