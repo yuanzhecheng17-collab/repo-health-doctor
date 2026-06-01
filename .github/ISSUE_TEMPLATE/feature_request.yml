@@ -1,0 +1,30 @@
+name: Feature request
+description: Suggest a new check or workflow.
+title: "[Feature]: "
+labels: []
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem should this solve?
+      description: Explain the repository health gap or workflow pain.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the check, output, or CLI behavior you want.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Checks
+        - CLI output
+        - CI integration
+        - Configuration
+        - Documentation
+        - Other

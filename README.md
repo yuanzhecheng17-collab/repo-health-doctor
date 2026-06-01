@@ -8,6 +8,10 @@ Repo Health Doctor is a zero-dependency CLI that scores whether a repository is 
 
 It never reads private `.env` file contents. It only reports their file names and scans ordinary text files for risky secret patterns.
 
+## Why
+
+Use it before publishing a new open-source project, reviewing a starter template, or adding a quick quality gate to CI. It gives maintainers a fast checklist for repository basics that are easy to forget.
+
 ## Demo
 
 Run it before publishing a repository to catch missing docs, tests, CI, private env files, and obvious secrets.
@@ -21,6 +25,28 @@ npx repo-health-doctor .
 ```
 
 Package: [repo-health-doctor on npm](https://www.npmjs.com/package/repo-health-doctor)
+
+## Use In CI
+
+```yaml
+name: repo health
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  repo-health:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npx repo-health-doctor . --fail-under 80
+```
 
 For local development:
 
@@ -79,6 +105,10 @@ Before publishing to npm:
 npm test
 npm publish --access public
 ```
+
+## Launch Kit
+
+Want to share the project or collect feedback? See [docs/launch-kit.md](docs/launch-kit.md) for copy-paste posts and a lightweight launch checklist.
 
 ## License
 

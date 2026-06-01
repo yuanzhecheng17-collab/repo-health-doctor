@@ -1,0 +1,31 @@
+name: Bug report
+description: Report a problem with Repo Health Doctor.
+title: "[Bug]: "
+labels: []
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe the unexpected behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How can we reproduce it?
+      description: Include the command you ran and a minimal repository shape if possible.
+      placeholder: |
+        npx repo-health-doctor .
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      placeholder: repo-health-doctor 0.1.0
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: Node.js version, OS, shell
