@@ -8,6 +8,8 @@ Repo Health Doctor is a zero-dependency CLI that scores whether a repository is 
 
 It never reads private `.env` file contents. It only reports their file names and scans ordinary text files for risky secret patterns.
 
+![Repo Health Doctor demo](assets/demo.gif)
+
 ## Quick Start
 
 ```sh
