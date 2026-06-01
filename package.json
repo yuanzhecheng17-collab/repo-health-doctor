@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "description": "Zero-dependency CLI that scores repository readiness before publishing.",
   "type": "module",
+  "files": [
+    "src"
+  ],
   "bin": {
     "repo-health-doctor": "./src/index.js",
     "rhd": "./src/index.js"
@@ -20,6 +23,14 @@
     "developer-tools"
   ],
   "author": "",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yuanzhecheng17-collab/repo-health-doctor.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yuanzhecheng17-collab/repo-health-doctor/issues"
+  },
+  "homepage": "https://github.com/yuanzhecheng17-collab/repo-health-doctor#readme",
   "license": "MIT",
   "engines": {
     "node": ">=18"
